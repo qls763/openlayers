@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<title></title>
+<link rel="stylesheet" href="./css/ol.css" />
+<link rel="stylesheet" href="./css/openlayers-object.css" />
+<script src="./js/jquery-1.7.1.min.js" type="text/javascript"></script>
+<script type="text/javascript" src='./js/ol.js'></script>
+<script type="text/javascript" src='./js/openlayers-object.js'></script>
+<script type="text/javascript" src='./js/jscolor-2.0.4/jscolor.min.js'></script>
+<style type="text/css"> 
+#box_relative {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  z-index: 100000;
+}
+body,html {
+	margin: 0;
+	padding: 0;
+	width: 100%;;
+	height: 100%;
+	overflow: hidden;
+}
+dl{width:100%}
+dt,dd{width:50%;display:inline}
+dd{margin:5px}
+dd input{width:60px}
+.white {
+    background: rgba(0, 0, 0, 0) -moz-linear-gradient(center top , #fff, #ededed) repeat scroll 0 0;
+    border: 1px solid #b7b7b7;
+    color: #606060;
+}
+.button {
+    border-radius: 0.5em;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    display: inline-block;
+    font-size: 12px;
+    margin: 0 2px;
+    outline: medium none;
+    overflow: visible;
+    padding: 0.2em 1.2em 0.22em;
+    text-align: center;
+    text-decoration: none;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+    vertical-align: baseline;
+}
+
+#box_relative .tooltip{
+padding:5px;background:#b5b5b5 none repeat scroll 0 0;width:230px;font-size:10px
+}
+#box_relative .tooltip .explode div{
+	padding:5px 0px;
+}
+</style>
+</head>
+<body >
+<div id="box_relative">
+	<div class="tooltip">
+		<input type="button" onclick="drawPolygon();" value="绘制区域" id="btnDrawPolygon" class="buttonClass">
+		<input type="button" onclick="saveAll();" value="保存绘图" id="btnDrawPolygon" class="buttonClass">	
+		<div class="explode">
+			<div >1.绘制过程中点击右键结束绘制</div>
+			<div >2.结束绘制后，右键点击绘制区域，可设置颜色、删除</div>
+			<div >3.绘制过程中按住鼠标左键可拖动地图</div>
+		</div>
+		<div style="">当前层级：<input class="curlevel" type="text" value="" size="5"></div>
+		<div style="">取色器：<input class="jscolor " value="red" size="10"></div>
+	</div>
+</div>
+<div id="mapDIV" style="width: 100%;height: 100%; overflow:hidden;"></div>
+
+<script type="text/javascript">
+var openLayers,map,draw;
+var indraw = false;
+var overlay_arr = {}, upData = {};;
+var center_lon = 120.980874667,center_lat = 28.116662747;
+var projection = ol.proj.get('EPSG:4326');
+var projectionExtent = projection.getExtent();
+var size = ol.extent.getWidth(projectionExtent) / 256; 
+var resolutions = new Array(20);
+var matrixIds = new Array(20);
+for (var z = 0; z <=20; ++z) {
+	resolutions[z] = size / Math.pow(2, z);
+	matrixIds[z] = z;   
+}
+/**
+ * 返回随机数
+ * @return string
+ */
+function randNum(length){
+	var str = '';
+	for(var i=0;i<length;i++){
+		str += Math.floor(Math.random()*10);
+	}
+	return str; 
+}
+//加载浙江图层
+	map = new ol.Map({
+	  layers: [
+	    new ol.layer.Tile({
+	      source: new ol.source.WMTS({
+	        name: "浙江矢量15-17级",
+	        url: 'http://srv{0-6}.zjditu.cn/ZJEMAP_2D/wmts',
+	        layer: 'TDT_ZJEMAP',
+	        style: 'default',
+	        matrixSet: 'TileMatrixSet0',
+	        format: 'image/png',
+	        wrapX: true,
+	        tileGrid: new ol.tilegrid.WMTS({
+	          origin: ol.extent.getTopLeft(projectionExtent),
+                        resolutions: resolutions.slice(14, 18),
+                        matrixIds: matrixIds.slice(14, 18)
+	        })
+	      }),
+			minResolution: resolutions[17],
+			maxResolution: resolutions[14]
+	    }),
+	    new ol.layer.Tile({
+	      source: new ol.source.WMTS({
+	        name: "浙江矢量注记15-17级",
+	        url: 'http://srv{0-6}.zjditu.cn/ZJEMAPANNO_2D/wmts',
+	        layer: 'ZJEMAPANNO',
+	        style: 'default',
+	        matrixSet: 'TileMatrixSet0',
+	        format: 'image/png',
+	        wrapX: true,
+	        tileGrid: new ol.tilegrid.WMTS({
+	          origin: ol.extent.getTopLeft(projectionExtent),
+                        resolutions: resolutions.slice(14, 18),
+                        matrixIds: matrixIds.slice(14, 18)
+	        })
+	      }),
+                minResolution: resolutions[17],
+                maxResolution: resolutions[14]
+	    }),
+	  ],
+	  target: 'mapDIV',
+	  view: new ol.View({
+	    center: [center_lon, center_lat],
+	    projection: projection,
+	    zoom: 16,
+	    maxZoom: 17,
+	    minZoom: 15
+	  })
+	});
+
+	var vector = new ol.layer.Vector({
+		source: new ol.source.Vector(),
+		style: new ol.style.Style({
+			fill: new ol.style.Fill({
+				color: 'rgba(255, 0, 0, 0.2)'
+			}),
+			stroke: new ol.style.Stroke({
+				color: '#ff0000',
+				width: 2
+			}),
+			image: new ol.style.Circle({
+				radius: 7,
+				fill: new ol.style.Fill({
+					color: '#ff0000'
+				})
+			})
+		})
+	});
+	var style = new ol.style.Style({
+		fill: new ol.style.Fill({
+			color: 'rgba(255, 0, 0, 0.2)'
+		}),
+		stroke: new ol.style.Stroke({
+			color: '#ff0000',
+			width: 1
+		}),
+		image: new ol.style.Circle({
+			radius: 5,
+			stroke: new ol.style.Stroke({
+				color: '#ff0000',
+				width: 1
+			})
+			/*
+			fill: new ol.style.Fill({
+				color: '#ff0000'
+			})
+			*/
+		})
+	});
+	map.addLayer(vector);
+$(document).ready(function(){
+
+	//右键监听，
+	$(map.getViewport()).on("contextmenu", function(e){
+		e.preventDefault();
+		if(indraw){//正在绘制，触发停止绘图  会触发 drawend
+			draw.finishDrawing();
+		}else{
+			var coordinate = map.getEventCoordinate(e);		//获取鼠标点击区域坐标
+			var pixel = map.getEventPixel(e.originalEvent);//根据点击的区域获取
+	        var res = map.forEachFeatureAtPixel(pixel, function (feature, layer) {
+	            return {feature:feature,layer:layer};
+	        });
+	        if(res != undefined){
+		        var feature = res.feature;
+		        if(feature != undefined){
+					var geometry = feature.getGeometry();
+					if(geometry.getType() == 'Polygon'){
+						var id = feature.getId();//获取之前绑定的ID 
+						var tooltip = createInfoWindow(id);		//出现菜单按钮，删除或设置颜色
+						tooltip.setPosition(coordinate);
+					}  	        	
+		        }
+	        }
+		}
+	});
+
+	map.getView().on("change:resolution",function(){
+		if(!(this.getZoom()%1 === 0)) return;
+		$('.curlevel').val(this.getZoom().toString());
+		if(indraw){//如果还在绘制过程中 
+			
+		}
+	});
+	$('.curlevel').val(map.getView().getZoom().toString());
+});
+
+//画面，区域绘制
+function drawPolygon() {
+	draw = new ol.interaction.Draw({
+		source: vector.getSource(),
+		style: style,
+		type: /** @type {ol.geom.GeometryType} */ ('Polygon')
+	});
+
+    map.addInteraction(draw);//添加绘图工具
+
+    draw.on('drawstart',function(event) {//绘画开始
+	  indraw = true;
+	    var zoom = map.getView().getZoom();
+
+    });
+    draw.on('drawend',function(event) {//绘画完成触发时间
+  	    indraw = false;
+  	    map.removeInteraction(draw);	
+	  	var str = 'polygon_' + randNum(5);	//5位随机数
+	  	event.feature.setId(str);//绘制完成 ,给feature 设置id
+		var geometry = event.feature.getGeometry();
+		if(geometry.getType() == 'Polygon'){
+			var coordinates = geometry.getCoordinates();
+	        var points = [];
+	        $.each(coordinates,function(i,cs){
+	            $.each(cs,function(j,c){
+	            	var point = {x:c[0] ,y:c[1] };
+	            	points.push(point)
+	            });
+	        });
+			upData[str] = {"point":points,"pgcolor":"FF230A",'pgfillcolor':"FF230A"};
+		}
+    });
+	return;
+}
+
+
+//创建窗口
+function createInfoWindow(id){
+	var tooltipElement = document.createElement('div');
+	tooltipElement.className = 'tooltip tooltip-static';
+	var tooltip = new ol.Overlay({
+	  element: tooltipElement,
+	  offset: [0, -15],
+	  positioning: 'bottom-center'
+	});
+	overlay_arr[id] = tooltip;
+	tooltipElement.innerHTML =  createInfoWindowHtml(id,upData[id]);
+	map.addOverlay(tooltip);
+	return tooltip;
+}
+
+function createInfoWindowHtml(index,item){
+    str = "<div style='width:220px;text-align:center; margin:0px auto;background-color:#fff;padding:5px;border:1px solid #eee;border-radius:10px' id='gondiv_"+index+"'>"
+    str += "<dl><dt><label>边框颜色:</label></dt><dd>#<input type='text' value='" + item.pgcolor + "' id='pgcolor' placeholder='填写颜色编码 如:#B2B2B2'></dd></dl>" +
+    		"<dl><dt><label>填充颜色:</label></dt><dd>#<input type='text' value='" + item.pgfillcolor + "' id='pgfillcolor' placeholder='填写颜色编码 如:#B2B2B2'></dd></dl>";
+    str += "<a class='button white' href='javascript:saveProp(\"" + index + "\")'>保存属性</a><a class='button white' href='javascript:delProp(\"" + index + "\")'>删除区域</a>";
+    str += "</div>";
+	return str;
+}
+function saveProp(key){
+	var pgcolor = $("#gondiv_"+key).find('#pgcolor').val();
+	var pgfillcolor = $("#gondiv_"+key).find('#pgfillcolor').val();
+	var pg = upData[key];
+	if(pg!=null){
+		upData[key]['pgcolor'] = pgcolor;
+		upData[key]['pgfillcolor'] = pgfillcolor;
+		var overlay =  overlay_arr[key];
+		delOverlay(overlay);
+		//改变图层颜色 边框颜色  填充设定透明度 需将#DDDD转换为 rgb 使用
+		var style = new ol.style.Style({
+			fill: new ol.style.Fill({
+				color: colorRgb('#'+pgfillcolor,0.5)
+			}),
+			stroke: new ol.style.Stroke({
+				color: '#'+pgcolor,
+				width: 1
+			}),
+		});
+		map.getLayers().forEach(function(layer, i) {
+			var source = layer.getSource();
+			if(source instanceof ol.source.Vector){
+				var feature = source.getFeatureById(key);
+				if(feature != undefined){
+					feature.setStyle(style);
+				}
+			}
+		});	
+	}
+}
+
+function delProp(key){
+	var overlay = overlay_arr[key];
+	delOverlay(overlay);
+	map.getLayers().forEach(function(layer, i) {
+		var source = layer.getSource();
+		if(source instanceof ol.source.Vector){
+			var feature = source.getFeatureById(key);
+			if(feature != undefined){
+				source.removeFeature(feature);
+			}
+		}
+	});
+}
+function delOverlay(overlay){
+	if(typeof overlay != "undefiend" && overlay != null ){
+		map.removeOverlay(overlay);
+	}
+}
+
+
+//-------------------------------------
+/*RGB颜色转换为16进制*/
+function colorHex(rgb){
+	var that = rgb;
+	//十六进制颜色值的正则表达式
+	var reg = /^#([0-9a-fA-f]{3}|[0-9a-fA-f]{6})$/;
+	// 如果是rgb颜色表示
+	if (/^(rgb|RGB)/.test(that)) {
+		var aColor = that.replace(/(?:\(|\)|rgb|RGB)*/g, "").split(",");
+		var strHex = "#";
+		for (var i=0; i<aColor.length; i++) {
+			var hex = Number(aColor[i]).toString(16);
+			if (hex === "0") {
+				hex += hex;	
+			}
+			strHex += hex;
+		}
+		if (strHex.length !== 7) {
+			strHex = that;	
+		}
+		return strHex;
+	} else if (reg.test(that)) {
+		var aNum = that.replace(/#/,"").split("");
+		if (aNum.length === 6) {
+			return that;	
+		} else if(aNum.length === 3) {
+			var numHex = "#";
+			for (var i=0; i<aNum.length; i+=1) {
+				numHex += (aNum[i] + aNum[i]);
+			}
+			return numHex;
+		}
+	}
+	return that;
+};
+
+//-------------------------------------------------
+
+/*16进制颜色转为RGB格式*/
+function colorRgb(color,alpha){
+	var sColor = color.toLowerCase();
+	//十六进制颜色值的正则表达式
+	var reg = /^#([0-9a-fA-f]{3}|[0-9a-fA-f]{6})$/;
+	// 如果是16进制颜色
+	if (sColor && reg.test(sColor)) {
+		if (sColor.length === 4) {
+			var sColorNew = "#";
+			for (var i=1; i<4; i+=1) {
+				sColorNew += sColor.slice(i, i+1).concat(sColor.slice(i, i+1));	
+			}
+			sColor = sColorNew;
+		}
+		//处理六位的颜色值
+		var sColorChange = [];
+		for (var i=1; i<7; i+=2) {
+			sColorChange.push(parseInt("0x"+sColor.slice(i, i+2)));	
+		}
+		if(alpha >0 ){
+			return "rgba(" + sColorChange.join(",") + "," + alpha + ")";	
+		}else{
+			return "RGB(" + sColorChange.join(",") + ")";
+		}
+	}
+	return sColor;
+};
+
+
+/* 添加图层选中时间	选中后 变蓝色，删除feature 后 蓝色区域还在，要重新点击地图 才消失，未找到原因，暂时使用右键出现菜单代替
+ * var clickEvent = function(e){
+		if(indraw ==false ){
+			var ois =e.target;//获取事件对象，即产生这个事件的元素-->ol.interaction.Select  
+			var collection = ois.getFeatures();//获取这个事件绑定的features-->返回值是一个ol.Collection对象  
+			var features = collection.getArray();//获取这个集合的第一个元素-->真正的feature  
+			if(features.length>0 ){  
+				var feature = features[0];
+				var geometry = feature.getGeometry();
+				if(geometry.getType() == 'Polygon'){
+					var extent = geometry.getExtent();
+					var center = [(extent[0] + extent[2])/2, (extent[1] + extent[3])/2];
+					var id = feature.getId();//获取之前绑定的ID 出现菜单按钮，删除或设置颜色
+					var tooltip = createInfoWindow(id);
+					tooltip.setPosition(center);
+				}
+			} 
+		}
+	}
+
+	var inSelect = {
+	    init: function() {
+	      this.select = new ol.interaction.Select({
+	    	  condition: ol.events.condition.click
+	      });
+	      map.addInteraction(this.select);
+	      this.setEvents();
+	    },
+	    setEvents: function() {
+
+	      this.select.on('select',this.selectEvent);//触发选中事件
+	    },
+	    setActive: function(active) {
+	      this.select.setActive(active);
+	    },
+	    selectEvent:function(e){
+	    	clickEvent(e);
+	    }
+	};
+	inSelect.init();*/
+</script>
+</body>
+</html>
